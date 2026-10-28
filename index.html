@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#172554">
+  <title>NihongoPath Voice Bridge</title>
+  <style>
+    :root{color-scheme:light;--navy:#172554;--blue:#2453d4;--ink:#172033;--muted:#62708b;--line:#dbe3ef;--panel:#f5f7fb;--red:#b42318;--green:#067647}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(155deg,#eff4ff,#f8fafc 42%,#edfdf7);font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink);min-height:100vh;padding:20px;display:flex;align-items:center;justify-content:center}
+    .shell{width:min(100%,540px);background:#fff;border:1px solid #dce5f2;border-radius:24px;box-shadow:0 18px 50px #17255417;padding:24px}
+    .brand{display:flex;align-items:center;gap:10px;color:var(--navy);font-weight:800;font-size:18px}.mark{width:42px;height:42px;border-radius:13px;background:var(--navy);color:white;display:grid;place-items:center;font-size:24px}
+    h1{font-size:25px;line-height:1.2;margin:20px 0 8px}.muted{color:var(--muted)}.small{font-size:13px}.pill{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;background:#edf2ff;color:#203d8f;font-size:12px;font-weight:700;margin-top:4px}
+    .status{margin:16px 0;padding:13px 14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;min-height:50px;white-space:pre-wrap}.status.ok{background:#ecfdf3;border-color:#b7ebca;color:var(--green)}.status.error{background:#fff1f0;border-color:#fecaca;color:var(--red)}
+    label{display:block;font-weight:700;font-size:14px;margin:12px 0 6px}select{width:100%;padding:12px;border:1px solid #cad5e5;border-radius:12px;background:white;font:inherit;color:var(--ink)}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}.btn{border:0;border-radius:13px;padding:13px 15px;font:inherit;font-weight:750;cursor:pointer;min-height:48px}.primary{background:var(--blue);color:white}.secondary{background:white;border:1px solid var(--line);color:var(--ink)}.btn:disabled{opacity:.5;cursor:not-allowed}
+    .transcript{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:13px;background:#fbfcfe;min-height:66px;white-space:pre-wrap;overflow-wrap:anywhere}.hint{margin-top:18px;padding-top:15px;border-top:1px solid var(--line)}.hint ol{padding-left:20px;margin-bottom:0}.footer{margin-top:18px;text-align:center;color:var(--muted);font-size:12px}
+    @media(max-width:420px){body{padding:10px}.shell{padding:18px;border-radius:18px}h1{font-size:22px}.actions{grid-template-columns:1fr}.btn{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand"><div class="mark">日</div><span>NihongoPath</span></div>
+    <div class="pill" id="purposeBadge">VOICE BRIDGE</div>
+    <h1>Jawab menggunakan suara</h1>
+    <p class="muted">Halaman ini membantu menangkap ucapan di luar sandbox Google Apps Script. Teks hasil pengenalan akan dikirim kembali ke tab NihongoPath yang membuka halaman ini.</p>
+    <div id="status" class="status" role="status" aria-live="polite">Menghubungkan ke NihongoPath…</div>
+    <label for="language">Bahasa ucapan</label>
+    <select id="language"><option value="ja-JP">日本語 · Bahasa Jepang</option><option value="id-ID">Bahasa Indonesia</option><option value="en-US">English · Bahasa Inggris</option></select>
+    <div class="actions">
+      <button id="startBtn" class="btn primary" disabled>🎙 Mulai mendengarkan</button>
+      <button id="stopBtn" class="btn secondary" disabled>■ Selesai bicara</button>
+    </div>
+    <div class="transcript" id="transcript" aria-live="polite">Hasil ucapan akan muncul di sini.</div>
+    <div class="actions">
+      <button id="retryBtn" class="btn secondary" disabled>↻ Coba lagi</button>
+      <button id="cancelBtn" class="btn secondary">Tutup / batal</button>
+    </div>
+    <section class="hint">
+      <strong>Jika izin mikrofon ditolak</strong>
+      <ol class="small muted">
+        <li>Tekan ikon pengaturan/izin situs di bilah alamat browser.</li>
+        <li>Atur <em>Microphone / Mikrofon</em> menjadi <strong>Allow / Izinkan</strong> untuk alamat GitHub Pages ini.</li>
+        <li>Jika tidak muncul, buka Pengaturan HP → Aplikasi → Chrome → Izin → Mikrofon.</li>
+        <li>Kembali ke halaman ini, muat ulang bila perlu, lalu tekan Coba lagi.</li>
+      </ol>
+      <p class="small muted">Pengenalan suara browser mungkin memerlukan internet dan dukungannya bergantung pada browser/perangkat. Halaman ini tidak menyimpan rekaman atau API key.</p>
+    </section>
+    <div class="footer">NihongoPath Voice Bridge · Transkrip dikirim hanya ke tab aplikasi yang membuka halaman ini.</div>
+  </main>
+<script>
+'use strict';
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const session = params.get('session') || '';
+  const purpose = params.get('purpose') || 'tutor';
+  const initialLang = params.get('lang') || 'ja-JP';
+  const statusEl = document.getElementById('status');
+  const transcriptEl = document.getElementById('transcript');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const retryBtn = document.getElementById('retryBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
+  const language = document.getElementById('language');
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let parentOrigin = '';
+  let initialized = false;
+  let recognition = null;
+  let finalTranscript = '';
+  let interimTranscript = '';
+  let lastError = '';
+  let sentResult = false;
+
+  document.getElementById('purposeBadge').textContent = purpose === 'speaking' ? 'SPEAKING COACH' : purpose === 'roleplay' ? 'ROLEPLAY' : 'AI CONVERSATION TUTOR';
+  language.value = ['ja-JP','id-ID','en-US'].includes(initialLang) ? initialLang : 'ja-JP';
+
+  function showStatus(message, type) {
+    statusEl.textContent = message;
+    statusEl.className = 'status' + (type ? ' ' + type : '');
+  }
+  function postToParent(type, extra) {
+    if (!window.opener || !parentOrigin || !session) return false;
+    try { window.opener.postMessage(Object.assign({ type: type, session: session }, extra || {}), parentOrigin); return true; }
+    catch (e) { return false; }
+  }
+  function setRecording(on) {
+    startBtn.disabled = !initialized || on || !Recognition;
+    stopBtn.disabled = !on;
+    retryBtn.disabled = on || !initialized || !Recognition;
+    language.disabled = on;
+  }
+  function cleanRecognition() {
+    if (recognition) {
+      recognition.onstart = null; recognition.onresult = null; recognition.onerror = null; recognition.onend = null;
+      try { recognition.abort(); } catch (e) {}
+    }
+    recognition = null;
+    setRecording(false);
+  }
+  function startRecognition() {
+    if (!initialized) { showStatus('Belum terhubung ke tab NihongoPath. Tutup tab ini lalu tekan tombol mikrofon dari aplikasi.', 'error'); return; }
+    if (!Recognition) {
+      showStatus('Browser ini belum mendukung Speech Recognition. Coba Chrome terbaru di Android atau gunakan mikrofon keyboard pada kolom teks.', 'error');
+      postToParent('NPG_VOICE_ERROR', { error: 'unsupported' });
+      return;
+    }
+    if (recognition) { try { recognition.abort(); } catch (e) {} recognition = null; }
+    finalTranscript = ''; interimTranscript = ''; lastError = ''; sentResult = false;
+    transcriptEl.textContent = 'Mendengarkan…';
+    const rec = new Recognition();
+    recognition = rec;
+    rec.lang = language.value || 'ja-JP';
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    rec.onstart = function () { showStatus('Mikrofon aktif. Silakan bicara dengan jelas, lalu berhenti sejenak atau tekan Selesai bicara.', 'ok'); setRecording(true); };
+    rec.onresult = function (event) {
+      finalTranscript = ''; interimTranscript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result && result[0] ? String(result[0].transcript || '') : '';
+        if (result.isFinal) finalTranscript += (finalTranscript ? ' ' : '') + text;
+        else interimTranscript += (interimTranscript ? ' ' : '') + text;
+      }
+      transcriptEl.textContent = (finalTranscript + (interimTranscript ? (finalTranscript ? ' ' : '') + interimTranscript : '')).trim() || 'Mendengarkan…';
+    };
+    rec.onerror = function (event) {
+      lastError = String(event && event.error || 'unknown');
+      const messages = {
+        'not-allowed': 'Izin mikrofon/pengenalan suara ditolak untuk situs ini. Izinkan mikrofon pada pengaturan situs GitHub Pages lalu coba lagi.',
+        'service-not-allowed': 'Layanan pengenalan suara diblokir browser atau kebijakan perangkat.',
+        'audio-capture': 'Mikrofon tidak tersedia. Periksa izin perangkat atau aplikasi lain yang sedang memakai mikrofon.',
+        'no-speech': 'Tidak ada ucapan yang terdeteksi. Coba berbicara setelah tombol mulai ditekan.',
+        'network': 'Pengenalan suara gagal karena jaringan. Periksa internet.',
+        'language-not-supported': 'Bahasa ini tidak didukung browser. Coba 日本語 atau Bahasa Indonesia.'
+      };
+      const message = messages[lastError] || ('Pengenalan suara gagal (' + lastError + ').');
+      showStatus(message, 'error');
+      postToParent('NPG_VOICE_ERROR', { error: lastError });
+    };
+    rec.onend = function () {
+      recognition = null;
+      setRecording(false);
+      const result = finalTranscript.trim();
+      if (result && !sentResult) {
+        sentResult = true;
+        transcriptEl.textContent = result;
+        showStatus('Teks dikenali. Mengirim ke NihongoPath…', 'ok');
+        const posted = postToParent('NPG_VOICE_RESULT', { transcript: result, lang: language.value, purpose: purpose });
+        if (posted) {
+          showStatus('Teks berhasil dikirim. Anda bisa kembali ke tab NihongoPath.', 'ok');
+          startBtn.disabled = true; retryBtn.disabled = true;
+          setTimeout(function () { try { window.close(); } catch (e) {} }, 900);
+        } else {
+          showStatus('Teks dikenali, tetapi tab NihongoPath tidak dapat dihubungi. Tutup tab dan mulai lagi dari aplikasi.', 'error');
+          postToParent('NPG_VOICE_ERROR', { error: 'bridge-no-opener' });
+        }
+      } else if (lastError) {
+        // Browser has already displayed a more specific message in onerror.
+        retryBtn.disabled = !initialized || !Recognition;
+      } else {
+        showStatus('Belum ada ucapan yang dikenali. Tekan Coba lagi dan ucapkan satu kalimat.', 'error');
+        postToParent('NPG_VOICE_ERROR', { error: 'no-speech' });
+      }
+    };
+    try { rec.start(); setRecording(true); }
+    catch (error) {
+      recognition = null; setRecording(false);
+      const reason = error && error.name === 'NotAllowedError' ? 'not-allowed' : (error && error.name || 'start-failed');
+      showStatus('Browser tidak dapat memulai pengenalan suara (' + reason + '). Periksa izin mikrofon dan coba lagi.', 'error');
+      postToParent('NPG_VOICE_ERROR', { error: reason });
+    }
+  }
+
+  startBtn.addEventListener('click', startRecognition);
+  retryBtn.addEventListener('click', startRecognition);
+  stopBtn.addEventListener('click', function () { if (recognition) { try { recognition.stop(); } catch (e) {} } });
+  cancelBtn.addEventListener('click', function () {
+    if (recognition) { try { recognition.abort(); } catch (e) {} }
+    postToParent('NPG_VOICE_CANCEL');
+    showStatus('Sesi suara dibatalkan. Tutup tab ini atau kembali ke NihongoPath.');
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 250);
+  });
+
+  window.addEventListener('message', function (event) {
+    if (event.source !== window.opener || !event.data || event.data.type !== 'NPG_VOICE_INIT' || event.data.session !== session) return;
+    if (initialized) return;
+    parentOrigin = event.origin;
+    initialized = true;
+    startBtn.disabled = !Recognition;
+    retryBtn.disabled = !Recognition;
+    if (!Recognition) {
+      showStatus('Browser ini tidak mendukung Speech Recognition. Gunakan Chrome terbaru di Android, atau mikrofon keyboard.', 'error');
+      postToParent('NPG_VOICE_ERROR', { error: 'unsupported' });
+    } else {
+      showStatus('Terhubung ke NihongoPath. Tekan Mulai mendengarkan dan izinkan mikrofon ketika browser bertanya.', 'ok');
+    }
+  });
+
+  if (!session) {
+    showStatus('Sesi tidak ditemukan. Buka halaman ini melalui tombol Jawab pakai suara di NihongoPath.', 'error');
+  } else if (!window.opener) {
+    showStatus('Browser tidak mengizinkan tab ini terhubung ke tab asal. Tutup tab dan buka ulang dari tombol di NihongoPath. Hindari mode private jika masih gagal.', 'error');
+  } else {
+    showStatus('Meminta koneksi aman dari tab NihongoPath…');
+    // READY contains only the random session nonce. The parent validates origin, source window, and nonce.
+    try { window.opener.postMessage({ type: 'NPG_VOICE_READY', session: session }, '*'); }
+    catch (e) { showStatus('Gagal menghubungi tab NihongoPath. Tutup lalu coba lagi.', 'error'); }
+  }
+})();
+</script>
+</body>
+</html>
